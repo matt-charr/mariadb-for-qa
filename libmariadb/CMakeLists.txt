@@ -536,7 +536,7 @@ configure_package_config_file(
   INSTALL_DESTINATION ${INSTALL_LIBDIR}/cmake/MariaDB
 )
 write_basic_package_version_file(
-    "${PROJECT_NAME}ConfigVersion.cmake"
+    "MariaDBConfigVersion.cmake"
     VERSION ${CPACK_PACKAGE_VERSION}
     COMPATIBILITY SameMajorVersion
 )
