@@ -475,6 +475,9 @@ SET_TARGET_PROPERTIES(libmariadb PROPERTIES PREFIX "")
 #
 # Installation
 #
+
+INCLUDE(CMakePackageConfigHelpers)
+
 INCLUDE(${CC_SOURCE_DIR}/cmake/symlink.cmake)
 
 # There are still several projects which don't make use
