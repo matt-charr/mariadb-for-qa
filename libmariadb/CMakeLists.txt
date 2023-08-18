@@ -505,6 +505,7 @@ INSTALL(TARGETS mariadbclient
           DESTINATION ${INSTALL_LIBDIR})
 IF(WIN32)
 INSTALL(TARGETS libmariadb
+        EXPORT MariaDB_Exports
         COMPONENT SharedLibraries
         DESTINATION ${INSTALL_LIBDIR})
 ELSE()
@@ -512,11 +513,37 @@ ELSE()
 #INSTALL(TARGETS libmariadb LIBRARY DESTINATION ${INSTALL_LIBDIR}
 #        COMPONENT SharedLibraries NAMELINK_COMPONENT Development)
 # but as long as we build on CentOS 7 with its cmake 2.8.12.2 we have to use
-INSTALL(TARGETS libmariadb LIBRARY DESTINATION ${INSTALL_LIBDIR}
-        COMPONENT SharedLibraries NAMELINK_SKIP)
-INSTALL(TARGETS libmariadb LIBRARY DESTINATION ${INSTALL_LIBDIR}
-        COMPONENT Development NAMELINK_ONLY)
+INSTALL(TARGETS libmariadb 
+        EXPORT MariaDB_Exports
+        LIBRARY DESTINATION ${INSTALL_LIBDIR}
+        COMPONENT SharedLibraries 
+        NAMELINK_SKIP)
+INSTALL(TARGETS libmariadb 
+        LIBRARY DESTINATION ${INSTALL_LIBDIR}
+        COMPONENT Development 
+        NAMELINK_ONLY)
 ENDIF()
+INSTALL(#################
+        EXPORT MariaDB_Exports
+        DESTINATION ${INSTALL_LIBDIR}/cmake/MariaDB
+        NAMESPACE MariaDB::)
+configure_package_config_file(
+  "${CC_SOURCE_DIR}/cmake/MariaDBConfig.cmake.in"
+  "${CC_BINARY_DIR}/MariaDBConfig.cmake"
+  INSTALL_DESTINATION ${INSTALL_LIBDIR}/cmake/MariaDB
+)
+write_basic_package_version_file(
+    "${PROJECT_NAME}ConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+INSTALL(
+  FILES
+    ${CC_BINARY_DIR}/MariaDBConfig.cmake
+    ${CC_BINARY_DIR}/MariaDBConfigVersion.cmake
+  DESTINATION
+    ${INSTALL_LIBDIR}/cmake/MariaDB
+)
 
 IF(MSVC)
    # On Windows, install PDB
@@ -524,3 +551,4 @@ IF(MSVC)
            CONFIGURATIONS Debug RelWithDebInfo
            COMPONENT Development)
 ENDIF()
+
