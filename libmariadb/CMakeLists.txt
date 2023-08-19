@@ -484,6 +484,11 @@ INCLUDE(${CC_SOURCE_DIR}/cmake/symlink.cmake)
 # of the config program. To make sure these programs can
 # use mariadb client library we provide libmysql symlinks
 
+TARGET_INCLUDE_DIRECTORIES(libmariadb PUBLIC
+  $<BUILD_INTERFACE:${CC_BINARY_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
 IF(WITH_MYSQLCOMPAT)
   create_symlink(libmysqlclient${CMAKE_SHARED_LIBRARY_SUFFIX} libmariadb ${INSTALL_LIBDIR})
   create_symlink(libmysqlclient_r${CMAKE_SHARED_LIBRARY_SUFFIX} libmariadb ${INSTALL_LIBDIR})
