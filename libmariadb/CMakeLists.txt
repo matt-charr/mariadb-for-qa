@@ -486,7 +486,7 @@ INCLUDE(${CC_SOURCE_DIR}/cmake/symlink.cmake)
 
 TARGET_INCLUDE_DIRECTORIES(libmariadb PUBLIC
   $<BUILD_INTERFACE:${CC_BINARY_DIR}/include>
-  $<INSTALL_INTERFACE:include>
+  $<INSTALL_INTERFACE:include/mariadb>
 )
 
 IF(WITH_MYSQLCOMPAT)
