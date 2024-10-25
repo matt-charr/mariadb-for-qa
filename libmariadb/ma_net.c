@@ -341,7 +341,7 @@ int ma_net_real_write(NET *net, const char *packet, size_t len)
       char errmsg[100];
 
       net->error=2;				/* Close socket */
-      // strerror_r(save_errno, errmsg, 100);
+      strerror_r(save_errno, errmsg, 100);
       net->pvio->set_error(net->pvio->mysql, CR_ERR_NET_WRITE, SQLSTATE_UNKNOWN, 0,
                            errmsg, save_errno);
       net->reading_or_writing=0;
