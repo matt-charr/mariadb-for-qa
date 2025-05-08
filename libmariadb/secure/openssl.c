@@ -138,7 +138,7 @@ static void ma_tls_set_error(MYSQL *mysql)
     return;
   }
 
-  strerror_r(save_errno, ssl_error, MAX_SSL_ERR_LEN);
+  // strerror_r(save_errno, ssl_error, MAX_SSL_ERR_LEN);
   pvio->set_error(mysql, CR_SSL_CONNECTION_ERROR, SQLSTATE_UNKNOWN, "TLS/SSL error: %s (%d)",
                   ssl_error, save_errno);
   return;
