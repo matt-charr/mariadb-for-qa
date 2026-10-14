@@ -39,7 +39,7 @@
 #include <sys/un.h>
 #endif
 #ifdef HAVE_POLL
-#include <sys/poll.h>
+#include <poll.h>
 #endif
 #ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
@@ -140,7 +140,8 @@ struct st_ma_pvio_methods pvio_socket_methods= {
 #ifndef PLUGIN_DYNAMIC
 MARIADB_PVIO_PLUGIN pvio_socket_client_plugin=
 #else
-MARIADB_PVIO_PLUGIN _mysql_client_plugin_declaration_=
+MARIADB_CLIENT_PLUGIN_EXPORT MARIADB_PVIO_PLUGIN
+    _mysql_client_plugin_declaration_=
 #endif
 {
   MARIADB_CLIENT_PVIO_PLUGIN,
@@ -183,7 +184,7 @@ static int pvio_socket_end(void)
 
 my_bool pvio_socket_change_timeout(MARIADB_PVIO *pvio, enum enum_pvio_timeout type, int timeout)
 {
-  struct timeval tm;
+  struct timeval tm= {0};
   int rc= 0;
   struct st_pvio_socket *csock= NULL;
   if (!pvio)
@@ -344,7 +345,7 @@ ssize_t pvio_socket_read(MARIADB_PVIO *pvio, uchar *buffer, size_t length)
 */   
 ssize_t pvio_socket_async_read(MARIADB_PVIO *pvio, uchar *buffer, size_t length)
 {
-  ssize_t r= -1;
+  ssize_t r;
 #ifndef _WIN32
   int read_flags= MSG_DONTWAIT;
 #endif
@@ -359,7 +360,7 @@ ssize_t pvio_socket_async_read(MARIADB_PVIO *pvio, uchar *buffer, size_t length)
   r= recv(csock->socket,(void *)buffer, length, read_flags);
 #else
   /* Windows doesn't support MSG_DONTWAIT, so we need to set
-     socket to non blocking */
+     socket to non-blocking */
   pvio_socket_blocking(pvio, 0, 0);
   r= recv(csock->socket, (char *)buffer, (int)length, 0);
 #endif
@@ -417,7 +418,7 @@ static ssize_t ma_recv(my_socket socket, uchar *buffer, size_t length, int flags
 */   
 ssize_t pvio_socket_async_write(MARIADB_PVIO *pvio, const uchar *buffer, size_t length)
 {
-  ssize_t r= -1;
+  ssize_t r;
   struct st_pvio_socket *csock= NULL;
 #ifndef _WIN32
   int write_flags= MSG_DONTWAIT;
@@ -435,7 +436,7 @@ ssize_t pvio_socket_async_write(MARIADB_PVIO *pvio, const uchar *buffer, size_t 
   r= ma_send(csock->socket, buffer, length, write_flags);
 #else
   /* Windows doesn't support MSG_DONTWAIT, so we need to set
-     socket to non blocking */
+     socket to non-blocking */
   pvio_socket_blocking(pvio, 0, 0);
   r= send(csock->socket, (const char *)buffer, (int)length, 0);
 #endif
@@ -521,6 +522,9 @@ int pvio_socket_wait_io_or_timeout(MARIADB_PVIO *pvio, my_bool is_read, int time
   csock= (struct st_pvio_socket *)pvio->data;
   {
 #ifndef _WIN32
+    struct timespec start;
+    int remaining;
+
     memset(&p_fd, 0, sizeof(p_fd));
     p_fd.fd= csock->socket;
     p_fd.events= (is_read) ? POLLIN : POLLOUT;
@@ -528,12 +532,41 @@ int pvio_socket_wait_io_or_timeout(MARIADB_PVIO *pvio, my_bool is_read, int time
     if (!timeout)
       timeout= -1;
 
-    do {
-      rc= poll(&p_fd, 1, timeout);
-    } while (rc == -1 && errno == EINTR);
+    remaining= timeout;
+
+    if (timeout > 0)
+      clock_gettime(CLOCK_MONOTONIC, &start);
+
+    for (;;) {
+      rc= poll(&p_fd, 1, remaining);
+
+      if (rc != -1 || errno != EINTR)
+        break;
+
+      if (timeout > 0)
+      {
+        struct timespec now;
+        long long elapsed_ms;
+
+        clock_gettime(CLOCK_MONOTONIC, &now);
+
+        /* Calculate elapsed time utilizing a long long to safely avoid int wrapping */
+        elapsed_ms= (now.tv_sec - start.tv_sec) * 1000LL + 
+                    (now.tv_nsec - start.tv_nsec) / 1000000LL;
+
+        remaining= timeout - (int)elapsed_ms;
+
+        if (remaining <= 0)
+        {
+          rc= 0; /* Budget exhausted, force a timeout return */
+          break;
+        }
+      }
+    }
 
     if (rc == 0)
       errno= ETIMEDOUT;
+
 #else
     FD_ZERO(&fds);
     FD_ZERO(&exc_fds);
@@ -638,7 +671,7 @@ static int pvio_socket_internal_connect(MARIADB_PVIO *pvio,
   csock= (struct st_pvio_socket *)pvio->data;
   timeout= pvio->timeout[PVIO_CONNECT_TIMEOUT];
 
-  /* set non blocking */
+  /* set non-blocking */
   pvio_socket_blocking(pvio, 0, 0);
 
 #ifndef _WIN32
@@ -1101,10 +1134,10 @@ my_bool pvio_socket_is_alive(MARIADB_PVIO *pvio)
 
   res= poll(&poll_fd, 1, 0);
   if (res <= 0) /* timeout or error */
-    return FALSE;
+    return TRUE;
   if (!(poll_fd.revents & (POLLIN | POLLPRI)))
-    return FALSE;
-  return TRUE;
+    return TRUE;
+  return FALSE;
 #else
   /* We can't use the WSAPoll function, it's broken :-(
      (see Windows 8 Bugs 309411 - WSAPoll does not report failed connections)
@@ -1117,8 +1150,8 @@ my_bool pvio_socket_is_alive(MARIADB_PVIO *pvio)
 
   res= select((int)csock->socket + 1, &sfds, NULL, NULL, &tv);
   if (res > 0 && FD_ISSET(csock->socket, &sfds))
-    return TRUE;
-  return FALSE;
+    return FALSE;
+  return TRUE;
 #endif
 }
 /* }}} */

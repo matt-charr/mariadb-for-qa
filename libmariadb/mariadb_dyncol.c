@@ -678,6 +678,12 @@ init_read_hdr(DYN_HEADER *hdr, DYNAMIC_COLUMN *str)
   calc_param(&hdr->entry_size, &hdr->header_size,
              fmt_data[hdr->format].fixed_hdr_entry, hdr->offset_size,
              hdr->column_count);
+
+  if (fmt_data[hdr->format].fixed_hdr + hdr->header_size + hdr->nmpool_size > str->length)
+  {
+    return ER_DYNCOL_FORMAT;
+  }
+
   hdr->nmpool= hdr->header + hdr->header_size;
   hdr->dtpool= hdr->nmpool + hdr->nmpool_size;
   hdr->data_size= str->length - fmt_data[hdr->format].fixed_hdr -
@@ -783,7 +789,8 @@ dynamic_column_var_uint_get(uchar *data, size_t data_length,
   uint length;
   uchar *end= data + data_length;
 
-  for (length=0; data < end ; data++)
+  /* A 64-bit value needs ceil(64/7) = 10 groups of 7 bits */
+  for (length=0; data < end && length < 10; data++)
   {
     val+= (((ulonglong)((*data) & 0x7f)) << (length * 7));
     length++;
@@ -856,6 +863,10 @@ dynamic_column_uint_read(DYNAMIC_COLUMN_VALUE *store_it_here,
   ulonglong value= 0;
   size_t i;
 
+  /* make sure length fits into 64-bit */
+  if (length > 8)
+    return ER_DYNCOL_FORMAT;
+
   for (i= 0; i < length; i++)
     value+= ((ulonglong)data[i]) << (i*8);
 
@@ -916,8 +927,10 @@ static enum enum_dyncol_func_result
 dynamic_column_sint_read(DYNAMIC_COLUMN_VALUE *store_it_here,
                          uchar *data, size_t length)
 {
+  enum enum_dyncol_func_result rc;
   ulonglong val;
-  dynamic_column_uint_read(store_it_here, data, length);
+  if ((rc= dynamic_column_uint_read(store_it_here, data, length)))
+    return rc;
   val= store_it_here->x.ulong_value;
   if (val & 1)
     val= (val >> 1) ^ 0xffffffffffffffffULL;
@@ -2322,7 +2335,7 @@ dynamic_column_get_internal(DYNAMIC_COLUMN *str,
                             uint num_key, LEX_STRING *str_key)
 {
   DYN_HEADER header;
-  enum enum_dyncol_func_result rc= ER_DYNCOL_FORMAT;
+  enum enum_dyncol_func_result rc;
   memset(&header, 0, sizeof(header));
 
   if (str->length == 0)
@@ -3702,7 +3715,7 @@ mariadb_dyncol_check(DYNAMIC_COLUMN *str)
 
     if (header.format == dyncol_fmt_num)
     {
-       num= uint2korr(header.entry);
+       num= uint2korr(header.entry); // @infer-ignore DEAD_STORE
     }
     else
     {
@@ -3740,6 +3753,7 @@ mariadb_dyncol_check(DYNAMIC_COLUMN *str)
       }
     }
     prev_num= num;
+    (void)prev_num; /* make infer happy */
     prev_name= name;
     prev_data_offset= data_offset;
     prev_name_offset= name_offset;
@@ -4107,9 +4121,11 @@ static enum enum_dyncol_func_result
 mariadb_dyncol_json_internal(DYNAMIC_COLUMN *str, DYNAMIC_STRING *json,
                              uint lvl)
 {
-  DYN_HEADER header;
+  DYN_HEADER header= {0};
   uint i;
   enum enum_dyncol_func_result rc;
+
+  memset(&header, 0, sizeof(header));
 
   if (lvl >= JSON_STACK_PROTECTION)
   {
@@ -4241,12 +4257,13 @@ mariadb_dyncol_unpack(DYNAMIC_COLUMN *str,
                       uint *count,
                       LEX_STRING **names, DYNAMIC_COLUMN_VALUE **vals)
 {
-  DYN_HEADER header;
+  DYN_HEADER header= {0};
   char *nm;
   uint i;
   enum enum_dyncol_func_result rc;
 
   *count= 0; *names= 0; *vals= 0;
+  memset(&header, 0, sizeof(header));
 
   if (str->length == 0)
     return ER_DYNCOL_OK;                      /* no columns */
@@ -4344,7 +4361,7 @@ err:
 enum enum_dyncol_func_result
 mariadb_dyncol_column_count(DYNAMIC_COLUMN *str, uint *column_count)
 {
-  DYN_HEADER header;
+  DYN_HEADER header= {0};
   enum enum_dyncol_func_result rc;
 
   (*column_count)= 0;

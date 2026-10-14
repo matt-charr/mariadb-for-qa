@@ -94,7 +94,8 @@ CURLM *multi_handle= NULL;
 #ifndef PLUGIN_DYNAMIC
 MARIADB_REMOTEIO_PLUGIN remote_io_client_plugin=
 #else
-MARIADB_REMOTEIO_PLUGIN _mysql_client_plugin_declaration_ =
+MARIADB_CLIENT_PLUGIN_EXPORT MARIADB_REMOTEIO_PLUGIN
+    _mysql_client_plugin_declaration_=
 #endif
 {
   MARIADB_CLIENT_REMOTEIO_PLUGIN,
@@ -279,11 +280,11 @@ MA_FILE *ma_rio_open(const char *url,const char *operation)
   MA_REMOTE_FILE *rf;
   (void)operation;
  
-  if (!(file = (MA_FILE *)calloc(sizeof(MA_FILE), 1)))
+  if (!(file = (MA_FILE *)calloc(1, sizeof(MA_FILE))))
     return NULL;
  
   file->type= MA_FILE_REMOTE;
-  if (!(file->ptr= rf= (MA_REMOTE_FILE *)calloc(sizeof(MA_REMOTE_FILE), 1)))
+  if (!(file->ptr= rf= (MA_REMOTE_FILE *)calloc(1, sizeof(MA_REMOTE_FILE))))
   {
     free(file);
     return NULL; 
@@ -315,6 +316,7 @@ MA_FILE *ma_rio_open(const char *url,const char *operation)
     curl_easy_cleanup(rf->curl);
 
     free(file);
+    free(rf);
 
     file = NULL;
   }

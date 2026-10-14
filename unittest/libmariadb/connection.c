@@ -29,7 +29,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 static int test_conc66(MYSQL *my)
 {
-  MYSQL *mysql= mysql_init(NULL);
+  MYSQL *mysql;
   int rc;
   FILE *fp;
   char query[1024];
@@ -54,16 +54,18 @@ static int test_conc66(MYSQL *my)
 
   fclose(fp);
 
-  rc= mysql_options(mysql, MYSQL_READ_DEFAULT_GROUP, "conc-66");
-  check_mysql_rc(rc, mysql);
-  rc= mysql_options(mysql, MYSQL_READ_DEFAULT_FILE, "./my-conc66-test.cnf");
-  check_mysql_rc(rc, mysql);
-
   sprintf(query, "GRANT ALL ON %s.* TO 'conc66'@'%s' IDENTIFIED BY 'test@A1\";#test'", schema, this_host ? this_host : "localhost");
   rc= mysql_query(my, query);
   check_mysql_rc(rc, my);
   rc= mysql_query(my, "FLUSH PRIVILEGES");
   check_mysql_rc(rc, my);
+  mysql= mysql_init(NULL);
+
+  rc= mysql_options(mysql, MYSQL_READ_DEFAULT_GROUP, "conc-66");
+  check_mysql_rc(rc, mysql);
+  rc= mysql_options(mysql, MYSQL_READ_DEFAULT_FILE, "./my-conc66-test.cnf");
+  check_mysql_rc(rc, mysql);
+
   if (!my_test_connect(mysql, hostname, NULL,
                              NULL, schema, port, socketname, 0))
   {
@@ -71,14 +73,14 @@ static int test_conc66(MYSQL *my)
     diag("Error: %s", mysql_error(mysql));
     return FAIL;
   }
-    diag("user: %s", mysql->options.user);
-  
+  diag("user: %s", mysql->options.user);
+
   sprintf(query, "DROP user 'conc66'@'%s'", this_host ? this_host : "localhost");
   rc= mysql_query(my, query);
 
   check_mysql_rc(rc, my);
   mysql_close(mysql);
-  return OK; 
+  return OK;
 }
 
 static int test_bug20023(MYSQL *mysql)
@@ -463,9 +465,9 @@ static int test_bug31669(MYSQL *mysql)
 static int test_bug33831(MYSQL *mysql)
 {
   FAIL_IF(my_test_connect(mysql, hostname, username,
-                             password, schema, port, socketname, 0), 
+                             password, schema, port, socketname, 0),
          "Error expected");
-  
+
   return OK;
 }
 
@@ -476,8 +478,6 @@ static int test_opt_reconnect(MYSQL *mysql)
   my_bool my_true= TRUE;
   int rc;
   my_bool reconnect;
-
-  printf("true: %d\n", TRUE);
 
   mysql= mysql_init(NULL);
   FAIL_IF(!mysql, "not enough memory");
@@ -632,7 +632,7 @@ int test_conc21(MYSQL *mysql)
   row= mysql_fetch_row(res);
   strcpy(tmp, row[0]);
   mysql_free_result(res);
-  
+
   sscanf(tmp, "%d.%d.%d", &major, &minor, &patch);
 
   check_server_version= major * 10000 + minor * 100 + patch;
@@ -644,7 +644,11 @@ int test_conc21(MYSQL *mysql)
 
 int test_conc26(MYSQL *unused __attribute__((unused)))
 {
-  MYSQL *mysql= mysql_init(NULL);
+  MYSQL *mysql;
+
+  SKIP_MAXSCALE;
+
+  mysql= mysql_init(NULL);
   mysql_options(mysql, MYSQL_SET_CHARSET_NAME, "ascii");
 
   FAIL_IF(my_test_connect(mysql, hostname, "notexistinguser", "password", schema, port, socketname, CLIENT_REMEMBER_OPTIONS),
@@ -654,7 +658,7 @@ int test_conc26(MYSQL *unused __attribute__((unused)))
   mysql_close(mysql);
 
   mysql= mysql_init(NULL);
-  FAIL_IF(my_test_connect(mysql, hostname, "notexistinguser", "password", schema, port, socketname, 0), 
+  FAIL_IF(my_test_connect(mysql, hostname, "notexistinguser", "password", schema, port, socketname, 0),
           "Error expected");
   FAIL_IF(mysql->options.charset_name, "Error: options not freed");
   mysql_close(mysql);
@@ -672,6 +676,7 @@ int test_connection_timeout(MYSQL *unused __attribute__((unused)))
   if (my_test_connect(mysql, "192.168.1.101", "notexistinguser", "password", schema, port, socketname, CLIENT_REMEMBER_OPTIONS))
   {
     diag("Error expected - maybe you have to change hostname");
+    mysql_close(mysql);
     return FAIL;
   }
   elapsed= time(NULL) - start;
@@ -700,6 +705,7 @@ int test_connection_timeout2(MYSQL *unused __attribute__((unused)))
   elapsed= time(NULL) - start;
   diag("elapsed: %lu", (unsigned long)elapsed);
     diag("timeout error expected");
+    mysql_close(mysql);
     return FAIL;
   }
   elapsed= time(NULL) - start;
@@ -726,6 +732,7 @@ int test_connection_timeout3(MYSQL *unused __attribute__((unused)))
     diag("timeout error expected");
     elapsed= time(NULL) - start;
     diag("elapsed: %lu", (unsigned long)elapsed);
+    mysql_close(mysql);
     return FAIL;
   }
   elapsed= time(NULL) - start;
@@ -741,6 +748,7 @@ int test_connection_timeout3(MYSQL *unused __attribute__((unused)))
   if (!my_test_connect(mysql, hostname, username, password, schema, port, socketname, CLIENT_REMEMBER_OPTIONS))
   {
     diag("Error: %s", mysql_error(mysql));
+    mysql_close(mysql);
     return FAIL;
   }
 
@@ -794,7 +802,7 @@ static int test_wrong_bind_address(MYSQL *unused __attribute__((unused)))
     diag("test doesn't work with unix sockets");
     return SKIP;
   }
- 
+
   mysql=  mysql_init(NULL);
 
   mysql_options(mysql, MYSQL_OPT_BIND, bind_addr);
@@ -864,7 +872,7 @@ static int test_get_options(MYSQL *unused __attribute__((unused)))
                       MYSQL_OPT_PROTOCOL, MYSQL_OPT_READ_TIMEOUT, MYSQL_OPT_WRITE_TIMEOUT, 0};
   my_bool options_bool[]= {MYSQL_OPT_RECONNECT, MYSQL_REPORT_DATA_TRUNCATION,
                            MYSQL_OPT_COMPRESS, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, MYSQL_SECURE_AUTH,
-#ifdef _WIN32    
+#ifdef _WIN32
     MYSQL_OPT_NAMED_PIPE,
 #endif
                           0};
@@ -907,7 +915,7 @@ static int test_get_options(MYSQL *unused __attribute__((unused)))
     mysql_options(mysql, options_char[i], char1);
     char2= NULL;
     mysql_get_optionv(mysql, options_char[i], (void *)&char2);
-    if (options_char[i] != MYSQL_SET_CHARSET_NAME) 
+    if (options_char[i] != MYSQL_SET_CHARSET_NAME)
       FAIL_IF(strcmp(char1, char2), "mysql_get_optionv (char) failed");
   }
 
@@ -1044,7 +1052,7 @@ static int test_conc496(MYSQL *mysql)
   rc= mysql_query(mysql, "CREATE TEMPORARY TABLE t1(a int) ENGINE=InnoDB");
   check_mysql_rc(rc, mysql);
   rc= mysql_query(mysql, "COMMIT");
-  
+
   check_mysql_rc(rc, mysql);
 
   if (!mysql_session_track_get_first(mysql, SESSION_TRACK_TRANSACTION_STATE, &data, &len))
@@ -1079,7 +1087,7 @@ static int test_unix_socket_close(MYSQL *unused __attribute__((unused)))
 
   for (i=0; i < 10000; i++)
   {
-    my_test_connect(mysql, "localhost", "user", "passwd", NULL, 0, "./dummy_sock", 0);
+    mysql_real_connect(mysql, "localhost", "user", "passwd", NULL, 0, "./dummy_sock", 0);
     /* check if we run out of sockets */
     if (mysql_errno(mysql) == 2001)
     {
@@ -1122,7 +1130,7 @@ static int test_reset(MYSQL *mysql)
   check_mysql_rc(rc, mysql);
 
   rc= mysql_query(mysql, "SELECT 1 FROM DUAL");
-  FAIL_IF(!rc, "Error expected"); 
+  FAIL_IF(!rc, "Error expected");
 
   rc= mysql_reset_connection(mysql);
   check_mysql_rc(rc, mysql);
@@ -1222,6 +1230,9 @@ static int test_mdev13100(MYSQL *my __attribute__((unused)))
   int rc;
   FILE *fp;
 
+  /* MXS-4898: MaxScale sends utf8mb4 in handshake OK packet */
+  SKIP_MAXSCALE;
+
   if (!(fp= fopen("./mdev13100.cnf", "w")))
     return FAIL;
 
@@ -1240,6 +1251,7 @@ static int test_mdev13100(MYSQL *my __attribute__((unused)))
     diag("Error: %s", mysql_error(mysql));
     return FAIL;
   }
+  diag("Default charset: %s", mysql_character_set_name(mysql));
   FAIL_IF(strcmp("latin2", mysql_character_set_name(mysql)), "Expected charset latin2");
   mysql_close(mysql);
 
@@ -1517,6 +1529,7 @@ static int test_conc327(MYSQL *unused __attribute__((unused)))
   const char *env= getenv("MYSQL_TMP_DIR");
   char cnf_file1[FN_REFLEN + 1];
   char cnf_file2[FN_REFLEN + 1];
+  my_bool failed_opening_files;
 
   SKIP_SKYSQL;
 
@@ -1535,10 +1548,22 @@ static int test_conc327(MYSQL *unused __attribute__((unused)))
 
   fp1= fopen(cnf_file1, "w");
   fp2= fopen(cnf_file2, "w");
-  FAIL_IF(!fp1 || !fp2, "fopen failed");
+  if((failed_opening_files = !fp1 || !fp2))
+  {
+    if(fp1)
+    {
+      fclose(fp1);
+    }
+    if(fp2)
+    {
+      fclose(fp2);
+    }
+  }
+
+  FAIL_IF(failed_opening_files, "fopen failed");
 
   fprintf(fp1, "!include %s\n", cnf_file2);
-  
+
   fprintf(fp2, "[client]\ndefault-character-set = latin2\nreconnect= 1\n");
   fclose(fp1);
   fclose(fp2);
@@ -1560,10 +1585,21 @@ static int test_conc327(MYSQL *unused __attribute__((unused)))
   snprintf(cnf_file1, FN_REFLEN, "%s%cmy.cnf", env, FN_LIBCHAR);
   fp1= fopen(cnf_file1, "w");
   fp2= fopen(cnf_file2, "w");
-  FAIL_IF(!fp1 || !fp2, "fopen failed");
+  if((failed_opening_files = !fp1 || !fp2))
+  {
+    if(fp1)
+    {
+      fclose(fp1);
+    }
+    if(fp2)
+    {
+      fclose(fp2);
+    }
+  }
+  FAIL_IF(failed_opening_files, "fopen failed");
 
   fprintf(fp2, "!includedir %s\n", env);
-  
+
   fprintf(fp1, "[client]\ndefault-character-set = latin2\nreconnect= 1\n");
   fclose(fp1);
   fclose(fp2);
@@ -1677,7 +1713,7 @@ static int test_conc312(MYSQL *my)
   {
     diag("Error: %s", mysql_error(my));
     diag("caching_sha256_password not supported");
-    return SKIP; 
+    return SKIP;
   }
 
   sprintf(query, "GRANT ALL ON %s.* TO 'foo'@'%s'", schema, this_host);
@@ -1692,7 +1728,7 @@ static int test_conc312(MYSQL *my)
   }
 
   mysql_close(mysql);
-  
+
   sprintf(query, "DROP USER 'foo'@'%s'", this_host);
   rc= mysql_query(my, query);
   check_mysql_rc(rc, mysql);
@@ -1776,7 +1812,7 @@ static int test_conc392(MYSQL *mysql)
     diag("Server doesn't support session tracking (cap=%lu)", mysql->server_capabilities);
     return SKIP;
   }
-  
+
   rc= mysql_query(mysql, "set session_track_state_change=1");
   check_mysql_rc(rc, mysql);
 
@@ -1785,7 +1821,7 @@ static int test_conc392(MYSQL *mysql)
     diag("session_track_get_first failed");
     return FAIL;
   }
-  
+
   FAIL_IF(len != 1, "Expected length 1");
   return OK;
 }
@@ -1868,7 +1904,7 @@ static int test_default_auth(MYSQL *my __attribute__((unused)))
     diag("Connection failed. Error: %s", mysql_error(mysql));
     mysql_close(mysql);
     return FAIL;
-  
+
   }
   mysql_close(mysql);
   return OK;
@@ -1933,7 +1969,7 @@ static int test_conc490(MYSQL *my __attribute__((unused)))
 static int test_conc544(MYSQL *mysql)
 {
   int rc;
-  MYSQL *my= mysql_init(NULL);
+  MYSQL *my;
   char query[1024];
 
   SKIP_SKYSQL;
@@ -1951,6 +1987,8 @@ static int test_conc544(MYSQL *mysql)
     diag("feature not supported, ed25519 plugin not available");
     return SKIP;
   }
+
+  my= mysql_init(NULL);
 
   rc= mysql_optionsv(my, MARIADB_OPT_RESTRICTED_AUTH, "client_ed25519");
   check_mysql_rc(rc, mysql);
@@ -2004,8 +2042,8 @@ static int test_conn_str(MYSQL *my __attribute__((unused)))
   int rc=OK;
 
   snprintf(conn_str, sizeof(conn_str)-1, "host=%s;user=%s;password={%s};port=%d;socket=%s",
-                hostname ? hostname : "localhost", username ? username : "", 
-                password ? password : "", 
+                hostname ? hostname : "localhost", username ? username : "",
+                password ? password : "",
                 port, socketname ? socketname : "");
 
   /* SkySQL requires secure connection */
@@ -2034,20 +2072,17 @@ static int test_conn_str_1(MYSQL *my __attribute__((unused)))
   FILE *fp;
   int rc;
   char conn_str[1024];
+
+  SKIP_MAXSCALE;
+
   mysql= mysql_init(NULL);
 
   if (!(fp= fopen("./conc274.cnf", "w")))
     return FAIL;
 
   sprintf(conn_str, "connection=host=%s;user=%s;password=%s;port=%d;ssl_enforce=1;socket=%s",
-                hostname ? hostname : "localhost", username ? username : "", 
-                password ? password : "", port, socketname ? socketname : "");
-
-  /* SkySQL requires secure connection */
-  if (IS_SKYSQL(hostname))
-  {
-    strcat(conn_str, ";ssl_enforce=1");
-  }
+                hostname ? hostname : "localhost", username ? username : "",
+                password ? password : "", ssl_port, socketname ? socketname : "");
 
   fprintf(fp, "[client]\n");
   fprintf(fp, "%s\n", conn_str);
@@ -2112,7 +2147,7 @@ static int test_conc365(MYSQL *my __attribute__((unused)))
 
   if (rc)
     return rc;
-  
+
   mysql= mysql_init(NULL);
   mysql_options(mysql, MARIADB_OPT_HOST, tmp);
   if (!my_test_connect(mysql, NULL, username,
@@ -2132,16 +2167,22 @@ static int test_conc365_reconnect(MYSQL *my)
   MYSQL *mysql= mysql_init(NULL);
   char tmp[1024];
   my_bool reconnect= 1;
+  SKIP_MAXSCALE;
 
   mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
 
-  snprintf(tmp, sizeof(tmp) - 1,
-   "host=127.0.0.1:3300,%s;user=%s;password=%s;port=%d;socket=%s",
-   hostname ? hostname : "localhost", username ? username : "", password ? password : "",
-   port, socketname ? socketname : "");
-
- if (IS_SKYSQL(hostname))
-   strcat(tmp, ";ssl_enforce=1");
+  if (IS_SKYSQL(hostname))
+  {
+    snprintf(tmp, sizeof(tmp) - 1,
+      "host=127.0.0.1:3300,%s;user=%s;password=%s;port=%d;socket=%s;ssl_enforce=1",
+      hostname ? hostname : "localhost", username ? username : "", password ? password : "",
+      ssl_port, socketname ? socketname : "");
+  } else {
+    snprintf(tmp, sizeof(tmp) - 1,
+      "host=127.0.0.1:3300,%s;user=%s;password=%s;port=%d;socket=%s",
+      hostname ? hostname : "localhost", username ? username : "", password ? password : "",
+      port, socketname ? socketname : "");
+  }
 
   if (!my_test_connect(mysql, tmp, username,
                              password, schema, port, socketname, CLIENT_REMEMBER_OPTIONS))
@@ -2190,6 +2231,7 @@ void my_status_callback(void *ptr, enum enum_mariadb_status_info type, ...)
         {
           MARIADB_CONST_STRING *str= va_arg(ap, MARIADB_CONST_STRING *);
           strncpy(data->database, str->str, str->length);
+          data->database[str->length]= 0;
         }
         break;
       case SESSION_TRACK_SYSTEM_VARIABLES:
@@ -2200,6 +2242,7 @@ void my_status_callback(void *ptr, enum enum_mariadb_status_info type, ...)
           if (!strncmp(key->str, "character_set_client", key->length))
           {
             strncpy(data->charset, val->str, val->length);
+            data->charset[val->length]= 0;
           }
         }
         break;
@@ -2219,6 +2262,8 @@ static int test_status_callback(MYSQL *my __attribute__((unused)))
   char tmp[64];
   int rc;
   struct st_callback data= {0,"", ""};
+
+  check(mysql);
 
   rc= mysql_optionsv(mysql, MARIADB_OPT_STATUS_CALLBACK, my_status_callback, &data);
 
@@ -2301,7 +2346,195 @@ static int test_conc632(MYSQL *my __attribute__((unused)))
   return OK;
 }
 
+static int test_conc505(MYSQL *my __attribute__((unused)))
+{
+  MYSQL *mysql= mysql_init(NULL);
+
+#define CLIENT_DEPRECATE_EOF (1ULL << 24)
+
+  if (my_test_connect(mysql, hostname, username, password, schema, port, socketname, CLIENT_DEPRECATE_EOF))
+  {
+    diag("Error expected: Invalid client flag");
+    mysql_close(mysql);
+    return FAIL;
+  }
+  diag("Error (expected): %s", mysql_error(mysql));
+  FAIL_IF(mysql_errno(mysql) != CR_INVALID_CLIENT_FLAG, "Wrong error number");
+  if (!my_test_connect(mysql, hostname, username, password, schema, port, socketname, CLIENT_MULTI_STATEMENTS | CLIENT_MULTI_RESULTS))
+  {
+    diag("Error: %s", mysql_error(mysql));
+    mysql_close(mysql);
+    return FAIL;
+  }
+
+  mysql_close(mysql);
+  return OK;
+}
+
+#if defined(HAVE_GNUTLS) && GNUTLS_VERSION_NUMBER >= 0x030700 || defined(HAVE_OPENSSL)
+#define HAVE_test_conc748
+static int test_conc748(MYSQL *my __attribute__((unused)))
+{
+  MYSQL *mysql;
+  int i;
+  const char *ciphers[3]= {"TLS_AES_128_GCM_SHA256", "TLS_AES_256_GCM_SHA384", "TLS_CHACHA20_POLY1305_SHA256"};
+  my_bool verify= 0;
+
+  SKIP_MAXSCALE;
+
+  for (i=0; i < 3; i++)
+  {
+    const char *tls_version;
+    mysql= mysql_init(NULL);
+
+    mysql_ssl_set(mysql, NULL, NULL, NULL, NULL, NULL);
+    mysql_optionsv(mysql, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &verify);
+    mysql_optionsv(mysql, MYSQL_OPT_SSL_CIPHER, ciphers[i]);
+
+    if (!my_test_connect(mysql, hostname, username,
+                         password, schema, port, socketname, 0))
+    {
+      diag("error: %s", mysql_error(mysql));
+      return FAIL;
+    }
+
+    FAIL_IF(strcmp(ciphers[i], mysql_get_ssl_cipher(mysql)), "Cipher mismatch");
+    mariadb_get_infov(mysql, MARIADB_CONNECTION_TLS_VERSION, &tls_version);
+    FAIL_IF(strcmp(tls_version, "TLSv1.3"), "TLS version mismatch");
+
+    mysql_close(mysql);
+  }
+  return OK;
+}
+#endif
+
+static int test_conc589(MYSQL *my)
+{
+  MYSQL *mysql= mysql_init(NULL);
+  int rc;
+  my_bool reconnect= 1, verify= 0;
+  unsigned long last_thread_id= 0;
+
+  SKIP_MAXSCALE;
+
+  mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
+  mysql_options(mysql, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &verify);
+
+  if (!my_test_connect(mysql, hostname, username,
+                       password, schema, port, socketname, CLIENT_REMEMBER_OPTIONS))
+  {
+    diag("error: %s", mysql_error(mysql));
+    return FAIL;
+  }
+
+  rc= mysql_query(mysql, "SET SESSION wait_timeout=5");
+  check_mysql_rc(rc, mysql);
+
+  last_thread_id= mysql_thread_id(mysql);
+  rc= mysql_query(mysql, "SET @a:=1");
+  check_mysql_rc(rc, mysql);
+
+  sleep(10);
+
+  rc= mysql_query(mysql, "SET @a:=2");
+  check_mysql_rc(rc, mysql);
+  FAIL_IF(mysql_thread_id(mysql) == last_thread_id, "Expected new connection id");
+  last_thread_id= mysql_thread_id(mysql);
+
+  mysql_kill(my, last_thread_id);
+
+  sleep(10);
+
+  rc= mysql_query(mysql, "SET @a:=3");
+  check_mysql_rc(rc, mysql);
+  FAIL_IF(mysql_thread_id(mysql) == last_thread_id, "Expected new connection id");
+  mysql_close(mysql);
+  return OK;
+}
+
+#ifdef WIN32
+static int test_conc760(MYSQL *my)
+{
+  MYSQL *mysql= mysql_init(NULL);
+  MYSQL_RES *result;
+  MYSQL_ROW row;
+  int rc;
+  char named_pipe_name[128];
+  my_bool reconnect= 1, verify= 0;
+  unsigned long last_thread_id= 0;
+  unsigned int protocol= MYSQL_PROTOCOL_PIPE;
+  my_bool have_named_pipe= 0;
+
+  SKIP_MAXSCALE;
+
+  rc= mysql_query(my, "select @@named_pipe, @@socket");
+  check_mysql_rc(rc, mysql);
+
+  if ((result= mysql_store_result(my)))
+  {
+    if((row= mysql_fetch_row(result)))
+      have_named_pipe= atoi(row[0]);
+    strncpy(named_pipe_name, row[1], sizeof(named_pipe_name)-1);
+    named_pipe_name[sizeof(named_pipe_name)-1]= '\0';
+    mysql_free_result(result);
+  }
+
+  if (!have_named_pipe)
+  {
+    diag("Server doesn't support named pipes");
+    return SKIP;
+  }
+
+  mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
+  mysql_options(mysql, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &verify);
+  mysql_options(mysql, MYSQL_OPT_PROTOCOL, &protocol);
+
+  if (!my_test_connect(mysql, hostname, username,
+                       password, schema, port, named_pipe_name, CLIENT_REMEMBER_OPTIONS))
+  {
+    diag("error: %s", mysql_error(mysql));
+    return FAIL;
+  }
+
+  rc= mysql_query(mysql, "SET SESSION wait_timeout=5");
+  check_mysql_rc(rc, mysql);
+
+  last_thread_id= mysql_thread_id(mysql);
+  if ((rc= mysql_query(mysql, "SELECT 1")) || (result= mysql_store_result(mysql)) == NULL)
+    check_mysql_rc(rc, mysql);
+
+  mysql_free_result(result);
+  sleep(10);
+
+  rc= mysql_query(mysql, "SELECT 2");
+  check_mysql_rc(rc, mysql);
+  if (result= mysql_store_result(mysql))
+    mysql_free_result(result);
+  FAIL_IF(mysql_thread_id(mysql) == last_thread_id, "Expected new connection id");
+  last_thread_id= mysql_thread_id(mysql);
+
+  mysql_kill(my, last_thread_id);
+
+  sleep(10);
+
+  if ((rc= mysql_query(mysql, "SELECT 3")) || (result= mysql_store_result(mysql)) == NULL)
+    check_mysql_rc(rc, mysql);
+  mysql_free_result(result);
+  FAIL_IF(mysql_thread_id(mysql) == last_thread_id, "Expected new connection id");
+  mysql_close(mysql);
+  return OK;
+}
+#endif
+
 struct my_tests_st my_tests[] = {
+#ifdef WIN32
+  {"test_conc760", test_conc760, TEST_CONNECTION_DEFAULT, 0, NULL, NULL},
+#endif
+  {"test_conc589", test_conc589, TEST_CONNECTION_DEFAULT, 0, NULL, NULL},
+#ifdef HAVE_test_conc748
+  {"test_conc748", test_conc748, TEST_CONNECTION_NONE, 0, NULL, NULL},
+#endif
+  {"test_conc505", test_conc505, TEST_CONNECTION_NONE, 0, NULL, NULL},
   {"test_conc632", test_conc632, TEST_CONNECTION_NONE, 0, NULL, NULL},
   {"test_status_callback", test_status_callback, TEST_CONNECTION_NONE, 0, NULL, NULL},
   {"test_conc365", test_conc365, TEST_CONNECTION_NONE, 0, NULL, NULL},
@@ -2344,9 +2577,9 @@ struct my_tests_st my_tests[] = {
   {"test_compress", test_compress, TEST_CONNECTION_NONE, 0, NULL,  NULL},
   {"test_reconnect", test_reconnect, TEST_CONNECTION_DEFAULT, 0, NULL, NULL},
   {"test_conc21", test_conc21, TEST_CONNECTION_DEFAULT, 0, NULL, NULL},
-  {"test_conc26", test_conc26, TEST_CONNECTION_NONE, 0, NULL, NULL}, 
+  {"test_conc26", test_conc26, TEST_CONNECTION_NONE, 0, NULL, NULL},
   {"test_connection_timeout", test_connection_timeout, TEST_CONNECTION_NONE, 0, NULL, NULL},
-  {"test_connection_timeout2", test_connection_timeout2, TEST_CONNECTION_NONE, 0, NULL, NULL}, 
+  {"test_connection_timeout2", test_connection_timeout2, TEST_CONNECTION_NONE, 0, NULL, NULL},
   {"test_connection_timeout3", test_connection_timeout3, TEST_CONNECTION_NONE, 0, NULL, NULL},
   {NULL, NULL, 0, 0, NULL, NULL}
 };

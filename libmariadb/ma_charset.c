@@ -253,9 +253,9 @@ static unsigned int mysql_mbcharlen_utf8(unsigned int utf8)
 
 
 /* {{{ big5 functions */
-#define valid_big5head(c)  (0xA1 <= (unsigned int)(c) && (unsigned int)(c) <= 0xF9)
-#define valid_big5tail(c)  ((0x40 <= (unsigned int)(c) && (unsigned int)(c) <= 0x7E) || \
-              (0xA1 <= (unsigned int)(c) && (unsigned int)(c) <= 0xFE))
+#define valid_big5head(c)  (0xA1 <= (uchar)(c) && (uchar)(c) <= 0xF9)
+#define valid_big5tail(c)  ((0x40 <= (uchar)(c) && (uchar)(c) <= 0x7E) || \
+              (0xA1 <= (uchar)(c) && (uchar)(c) <= 0xFE))
 
 #define isbig5code(c,d) (isbig5head(c) && isbig5tail(d))
 
@@ -1212,7 +1212,7 @@ size_t mysql_cset_escape_slashes(const MARIADB_CHARSET_INFO * cset, char *newstr
         escape_overflow = TRUE;
         break;
       }
-      /* copy non escaped character */
+      /* copy non-escaped character */
       *newstr++ = *escapestr;
     }
   }
@@ -1394,7 +1394,7 @@ struct st_madb_os_charset MADB_OS_CHARSET[]=
   {"57011", "ISCII Punjabi", NULL, NULL, MADB_CS_UNSUPPORTED},
   {"65000", "utf-7 Unicode (UTF-7)", NULL, NULL, MADB_CS_UNSUPPORTED},
   {"65001", "utf-8 Unicode (UTF-8)", "utf8", NULL, MADB_CS_EXACT},
-  /* non Windows */
+  /* non-Windows */
 #else
   /* iconv encodings */
   {"ASCII", "US-ASCII", "ascii", "ASCII", MADB_CS_APPROX},

@@ -471,7 +471,7 @@ my_bool ma_tls_connect(MARIADB_TLS *ctls)
   mysql= (MYSQL *)SSL_get_app_data(ssl);
   pvio= mysql->net.pvio;
 
-  /* Set socket to non blocking if not already set */
+  /* Set socket to non-blocking if not already set */
   if (!(blocking= pvio->methods->is_blocking(pvio)))
     pvio->methods->blocking(pvio, FALSE, 0);
 
@@ -533,7 +533,7 @@ ma_tls_async_check_result(int res, struct mysql_async_context *b, SSL *ssl)
 {
   int ssl_err;
   b->events_to_wait_for= 0;
-  if (res >= 0)
+  if (res > 0)
     return 1;
   ssl_err= SSL_get_error(ssl, res);
   if (ssl_err == SSL_ERROR_WANT_READ)

@@ -52,8 +52,6 @@
 #include <wincrypt.h>
 #include <bcrypt.h>
 
-extern BCRYPT_ALG_HANDLE RsaProv;
-extern BCRYPT_ALG_HANDLE Sha256Prov;
 #endif
 
 #include <ma_crypt.h>
@@ -64,7 +62,7 @@ extern BCRYPT_ALG_HANDLE Sha256Prov;
 #define CACHED_LOGIN_SUCCEEDED 3
 #define RSA_LOGIN_REQUIRED 4
 
-/* MySQL server allows requesting public key only for non secure connections.
+/* MySQL server allows requesting public key only for non-secure connections.
    secure connections are:
      - TLS/SSL connections
      - unix_socket connections
@@ -84,12 +82,8 @@ static int ma_sha256_scramble(unsigned char *scramble, size_t scramble_len,
   unsigned char digest1[MA_SHA256_HASH_SIZE],
                 digest2[MA_SHA256_HASH_SIZE],
                 new_scramble[MA_SHA256_HASH_SIZE];
-#ifdef HAVE_WINCRYPT
-  MA_HASH_CTX myctx;
-  MA_HASH_CTX *ctx= &myctx;
-#else
+
   MA_HASH_CTX *ctx = NULL;
-#endif
   size_t i;
 
   /* check if all specified lengths are valid */
@@ -97,27 +91,22 @@ static int ma_sha256_scramble(unsigned char *scramble, size_t scramble_len,
     return 1;
 
   /* Step1: create sha256 from source */
-  if (!(ctx= ma_hash_new(MA_HASH_SHA256, ctx)))
+  if (!(ctx= ma_hash_new(MA_HASH_SHA256)))
     return 1;
   ma_hash_input(ctx, source, source_len);
   ma_hash_result(ctx, digest1);
   ma_hash_free(ctx);
-#ifndef HAVE_WINCRYPT
-  ctx = NULL;
-#endif
+
 
   /* Step2: create sha256 digest from digest1 */
-  if (!(ctx= ma_hash_new(MA_HASH_SHA256, ctx)))
+  if (!(ctx= ma_hash_new(MA_HASH_SHA256)))
     return 1;
   ma_hash_input(ctx, digest1, MA_SHA256_HASH_SIZE);
   ma_hash_result(ctx, digest2);
   ma_hash_free(ctx);
-#ifndef HAVE_WINCRYPT
-  ctx = NULL;
-#endif
 
   /* Step3: create sha256 digest from digest2 + salt */
-  if (!(ctx= ma_hash_new(MA_HASH_SHA256, ctx)))
+  if (!(ctx= ma_hash_new(MA_HASH_SHA256)))
     return 1;
   ma_hash_input(ctx, digest2, MA_SHA256_HASH_SIZE);
   ma_hash_input(ctx, salt, salt_len);
@@ -142,7 +131,8 @@ static int auth_caching_sha2_init(char *unused1,
 #ifndef PLUGIN_DYNAMIC
 struct st_mysql_client_plugin_AUTHENTICATION caching_sha2_password_client_plugin=
 #else
-struct st_mysql_client_plugin_AUTHENTICATION _mysql_client_plugin_declaration_ =
+MARIADB_CLIENT_PLUGIN_EXPORT struct st_mysql_client_plugin_AUTHENTICATION
+    _mysql_client_plugin_declaration_=
 #endif
 {
   MYSQL_CLIENT_AUTHENTICATION_PLUGIN,
@@ -196,10 +186,13 @@ static char *load_pub_key_file(const char *filename, int *pub_key_size)
 {
   FILE *fp= NULL;
   char *buffer= NULL;
-  unsigned char error= 1;
+  my_bool error= 1;
+  long file_size;
 
   if (!pub_key_size)
     return NULL;
+
+  *pub_key_size= 0;
 
   if (!(fp= fopen(filename, "r")))
     goto end;
@@ -207,23 +200,28 @@ static char *load_pub_key_file(const char *filename, int *pub_key_size)
   if (fseek(fp, 0, SEEK_END))
     goto end;
 
-  if ((*pub_key_size= ftell(fp)) < 0)
+  if ((file_size= ftell(fp)) < 0 || file_size > INT_MAX)
     goto end;
+
+  *pub_key_size= (int)file_size;
 
   rewind(fp);
 
-  if (!(buffer= malloc(*pub_key_size + 1)))
+  if (!(buffer= malloc((size_t)*pub_key_size + 1)))
     goto end;
 
-  if (fread(buffer, *pub_key_size, 1, fp) != (size_t)*pub_key_size)
+  if (fread(buffer, 1, (size_t)*pub_key_size, fp) != (size_t)*pub_key_size)
     goto end;
+
+  /* Add terminating zero */
+  buffer[*pub_key_size]= 0;
 
   error= 0;
 
 end:
   if (fp)
     fclose(fp);
-  if (error && buffer)
+  if (error)
   {
     free(buffer);
     buffer= NULL;
@@ -311,7 +309,7 @@ static int auth_caching_sha2_client(MYSQL_PLUGIN_VIO *vio, MYSQL *mysql)
   if (!is_connection_secure(mysql))
   {
 #if defined(HAVE_GNUTLS)
-     mysql->methods->set_error(mysql, CR_AUTH_PLUGIN_ERR, "HY000", 
+     mysql->methods->set_error(mysql, CR_AUTH_PLUGIN_ERR, "HY000",
                                "RSA Encryption not supported - caching_sha2_password plugin was built with GnuTLS support");
      return CR_ERROR;
 #else
@@ -373,7 +371,10 @@ static int auth_caching_sha2_client(MYSQL_PLUGIN_VIO *vio, MYSQL *mysql)
 
 #endif
     if (!pubkey)
-      return CR_ERROR;
+    {
+      rc= CR_ERROR;
+      goto error;
+    }
 
     pwlen= (unsigned int)strlen(mysql->passwd) + 1;  /* include terminating zero */
     if (pwlen > MAX_PW_LEN)
@@ -460,10 +461,6 @@ static int auth_caching_sha2_init(char *unused1 __attribute__((unused)),
     int unused3     __attribute__((unused)),
     va_list unused4 __attribute__((unused)))
 {
-#if defined(HAVE_WINCRYPT)
-  BCryptOpenAlgorithmProvider(&Sha256Prov, BCRYPT_SHA256_ALGORITHM, NULL, 0);
-  BCryptOpenAlgorithmProvider(&RsaProv, BCRYPT_RSA_ALGORITHM, NULL, 0);
-#endif
   return 0;
 }
 /* }}} */
@@ -471,10 +468,6 @@ static int auth_caching_sha2_init(char *unused1 __attribute__((unused)),
 /* {{{ auth_caching_sha2_deinit */
 static int auth_caching_sha2_deinit(void)
 {
-#if defined(HAVE_WINCRYPT)
-  BCryptCloseAlgorithmProvider(Sha256Prov, 0);
-  BCryptCloseAlgorithmProvider(RsaProv, 0);
-#endif
   return 0;
 }
 /* }}} */

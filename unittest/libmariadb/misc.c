@@ -287,6 +287,8 @@ static int test_frm_bug(MYSQL *mysql)
   }
 
   rc= mysql_query(mysql, "SHOW TABLE STATUS like 'test_frm_bug'");
+
+  fclose(test_file);
   check_mysql_rc(rc, mysql);
 
   result= mysql_store_result(mysql);
@@ -307,7 +309,6 @@ static int test_frm_bug(MYSQL *mysql)
   mysql_free_result(result);
   mysql_stmt_close(stmt);
 
-  fclose(test_file);
   mysql_query(mysql, "drop table if exists test_frm_bug");
   unlink(test_frm);
   return OK;
@@ -985,6 +986,7 @@ static int test_connect_attrs(MYSQL *my)
   mysql_free_result(result);
 
   mysql= mysql_init(NULL);
+  check(mysql);
 
   mysql_options4(mysql, MYSQL_OPT_CONNECT_ATTR_ADD, "foo0", "bar0");
   mysql_options4(mysql, MYSQL_OPT_CONNECT_ATTR_ADD, "foo1", "bar1");
@@ -1040,6 +1042,8 @@ static int test_conc117(MYSQL *unused __attribute__((unused)))
   my_bool reconnect= 1;
   MYSQL *my= mysql_init(NULL);
   SKIP_MAXSCALE;
+
+  check(my);
   FAIL_IF(!my_test_connect(my, hostname, username, password, schema,
                          port, socketname, 0), mysql_error(my));
   
@@ -1058,6 +1062,8 @@ static int test_read_timeout(MYSQL *unused __attribute__((unused)))
   int timeout= 5, rc;
   MYSQL *my= mysql_init(NULL);
   SKIP_MAXSCALE;
+
+  check(my);
   mysql_options(my, MYSQL_OPT_READ_TIMEOUT, &timeout);
   FAIL_IF(!my_test_connect(my, hostname, username, password, schema,
                          port, socketname, 0), mysql_error(my));
@@ -1132,6 +1138,7 @@ static int test_remote2(MYSQL *my)
     return SKIP;
   }
   mysql= mysql_init(NULL);
+  check(mysql);
 
   mysql_options(mysql, MYSQL_READ_DEFAULT_FILE, "http://localhost/test.cnf");
   mysql_options(mysql, MYSQL_READ_DEFAULT_GROUP, "test");
@@ -1169,6 +1176,7 @@ static int test_mdev12965(MYSQL *unused __attribute__((unused)))
   FAIL_IF(!access(cnf_file1, R_OK), "access");
 
   mysql= mysql_init(NULL);
+  check(mysql);
   fp= fopen(cnf_file1, "w");
   FAIL_IF(!fp, "fopen");
 
@@ -1415,6 +1423,8 @@ static int test_conc384(MYSQL *my __attribute__((unused)))
   int len;
   MYSQL *mysql= mysql_init(NULL);
 
+  check(mysql);
+
   memset(&value, 'A', 999);
   value[999]= 0;
 
@@ -1534,6 +1544,46 @@ static int test_conc458(MYSQL *my __attribute__((unused)))
   return OK;
 }
 
+static int test_conc163(MYSQL *mysql)
+{
+  int rc;
+  MYSQL_STMT *stmt;
+
+  rc= mysql_query(mysql, "SET @a:=1");
+  check_mysql_rc(rc, mysql);
+
+  FAIL_IF(mysql_info(mysql) != NULL, "mysql_info: expected NULL");
+
+  rc= mysql_query(mysql, "DROP TABLE IF EXISTS t1");
+  check_mysql_rc(rc, mysql);
+
+  rc= mysql_query(mysql, "CREATE TABLE t1 AS SELECT 1");
+  check_mysql_rc(rc, mysql);
+
+  FAIL_IF(mysql_info(mysql) == NULL, "mysql_info: expected != NULL");
+
+  rc= mysql_query(mysql, "DROP TABLE t1");
+  check_mysql_rc(rc, mysql);
+
+  stmt= mysql_stmt_init(mysql);
+  rc= mariadb_stmt_execute_direct(stmt, SL("SET @a:=1"));
+  check_stmt_rc(rc, stmt);
+  FAIL_IF(mysql_info(mysql) != NULL, "mysql_info: expected NULL");
+
+  rc= mysql_query(mysql, "DROP TABLE IF EXISTS t1");
+  check_mysql_rc(rc, mysql);
+  rc= mariadb_stmt_execute_direct(stmt, SL("CREATE TABLE t1 AS SELECT 1"));
+  check_stmt_rc(rc, stmt);
+  FAIL_IF(mysql_info(mysql) == NULL, "mysql_info: expected != NULL");
+
+  mysql_stmt_close(stmt);
+
+  rc= mysql_query(mysql, "DROP TABLE t1");
+  check_mysql_rc(rc, mysql);
+
+  return OK;
+}
+
 
 static int test_conc533(MYSQL *mysql)
 {
@@ -1623,14 +1673,160 @@ int display_extended_field_attribute(MYSQL *mysql)
 
 static int test_ext_field_attr(MYSQL *mysql)
 {
+  if (!is_mariadb)
+  {
+    diag("feature not supported by MySQL server");
+    return SKIP;
+  }
   display_extended_field_attribute(mysql);
-  
+
   return OK;
 }
 
+static int test_comp_level(MYSQL *my __attribute__((unused)))
+{
+  unsigned char clevel= 5;
+  unsigned char clevel1= 0;
+  MYSQL *mysql= mysql_init(NULL);
+  check(mysql);
+
+  mysql_optionsv(mysql, MYSQL_OPT_ZSTD_COMPRESSION_LEVEL, &clevel);
+  mysql_get_optionv(mysql, MYSQL_OPT_ZSTD_COMPRESSION_LEVEL, &clevel1);
+
+  FAIL_IF(clevel != clevel1, "Different compression levels");
+  mysql_close(mysql);
+
+  return OK;
+}
+
+#define PRINCIPAL_NAME_MAX 256
+#define MECH_NAME_MAX 64
+
+/* Static function under test copied directly from plugins/auth/auth_gssapi_client.c */
+static void parse_server_packet(char *packet, size_t packet_len, char *spn, char *mech)
+{
+  const char *nul;
+  const char *mech_end;
+  size_t len;
+
+  if (!spn || !mech)
+    return;
+
+  *spn= *mech= '\0';
+
+  if (!packet || packet_len == 0)
+    return;
+
+  /* Find the SPN terminator within the packet. */
+  nul= memchr(packet, '\0', packet_len);
+
+  /* Copy SPN up to NUL or packet end, capped at PRINCIPAL_NAME_MAX. */
+  len= nul ? (size_t)(nul - packet) : packet_len;
+  if (len > PRINCIPAL_NAME_MAX)
+    len= PRINCIPAL_NAME_MAX;
+
+  memcpy(spn, packet, len);
+  spn[len]= '\0';
+
+  /* Stop if there was no NUL, or no remaining bytes after the NUL. */
+  if (!nul || ++nul >= packet + packet_len)
+    return;
+
+  /* Find the mechanism terminator. */
+  mech_end = memchr(nul, '\0', (size_t)(packet + packet_len - nul));
+
+  len= mech_end ? (size_t)(mech_end - nul) : (size_t)(packet + packet_len - nul);
+  if (len > MECH_NAME_MAX)
+    len= MECH_NAME_MAX;
+
+  memcpy(mech, nul, len);
+  mech[len]= '\0';
+}
+
+
+static int test_conc850(MYSQL *mysql __attribute__((unused)))
+{
+  char spn[PRINCIPAL_NAME_MAX + 1];
+  char mech[MECH_NAME_MAX + 1];
+  char packet[512];
+  const char *test1_spn = "HTTP/localhost@REALM";
+  const char *test1_mech = "kerberos";
+  size_t p1_len;
+
+  /* -------------------------------------------------------------------------
+   * Test 1: Standard valid packet ("HTTP/localhost@REALM\0kerberos\0")
+   * ------------------------------------------------------------------------- */
+  memset(spn, 0xFF, sizeof(spn));
+  memset(mech, 0xFF, sizeof(mech));
+
+  p1_len = sprintf(packet, "%s", test1_spn) + 1; // includes NUL
+  p1_len += sprintf(packet + p1_len, "%s", test1_mech) + 1;
+
+  parse_server_packet(packet, p1_len, spn, mech);
+
+  FAIL_IF(strcmp(spn, test1_spn) != 0, "Test 1: SPN mismatch");
+  FAIL_IF(strcmp(mech, test1_mech) != 0, "Test 1: Mech mismatch");
+
+  /* -------------------------------------------------------------------------
+   * Test 2: Oversized SPN without NUL byte in first 256 bytes (Flaw 1 regression)
+   * ------------------------------------------------------------------------- */
+  memset(spn, 0xFF, sizeof(spn));
+  memset(mech, 0xFF, sizeof(mech));
+  memset(packet, 'A', 300); // 300 bytes of 'A', no NUL
+
+  parse_server_packet(packet, 300, spn, mech);
+
+  FAIL_IF(strlen(spn) != PRINCIPAL_NAME_MAX, "Test 2: SPN length should be capped at 256");
+  FAIL_IF(spn[PRINCIPAL_NAME_MAX] != '\0', "Test 2: SPN must be NUL-terminated");
+  FAIL_IF(mech[0] != '\0', "Test 2: Mech should be empty string when no NUL exists");
+
+  /* -------------------------------------------------------------------------
+   * Test 3: Missing NUL byte anywhere in packet (Flaw 2 regression)
+   * ------------------------------------------------------------------------- */
+  memset(spn, 0xFF, sizeof(spn));
+  memset(mech, 0xFF, sizeof(mech));
+  memset(packet, 'B', 100); // 100 bytes of 'B', no NUL
+
+  parse_server_packet(packet, 100, spn, mech);
+
+  FAIL_IF(strlen(spn) != 100, "Test 3: SPN length should match packet_len");
+  FAIL_IF(spn[100] != '\0', "Test 3: SPN must be NUL-terminated");
+  FAIL_IF(mech[0] != '\0', "Test 3: Mech should be empty string");
+
+  /* -------------------------------------------------------------------------
+   * Test 4: SPN terminated, but packet ends right after SPN NUL byte
+   * ------------------------------------------------------------------------- */
+  memset(spn, 0xFF, sizeof(spn));
+  memset(mech, 0xFF, sizeof(mech));
+  memcpy(packet, "HTTP/server\0", 12);
+
+  parse_server_packet(packet, 12, spn, mech);
+
+  FAIL_IF(strcmp(spn, "HTTP/server") != 0, "Test 4: SPN mismatch");
+  FAIL_IF(mech[0] != '\0', "Test 4: Mech should be empty string when no bytes remain after NUL");
+
+  /* -------------------------------------------------------------------------
+   * Test 5: NULL pointers or zero length
+   * ------------------------------------------------------------------------- */
+  memset(spn, 0xFF, sizeof(spn));
+  memset(mech, 0xFF, sizeof(mech));
+
+  parse_server_packet(NULL, 0, spn, mech);
+  FAIL_IF(spn[0] != '\0' || mech[0] != '\0', "Test 5: Buffers should be empty on NULL packet");
+
+  parse_server_packet(packet, 0, spn, mech);
+  FAIL_IF(spn[0] != '\0' || mech[0] != '\0', "Test 5: Buffers should be empty on zero packet_len");
+
+  printf("All parse_server_packet unit tests passed successfully!\n");
+  return 0;
+}
+
 struct my_tests_st my_tests[] = {
+  {"test_conc850", test_conc850, TEST_CONNECTION_NONE, 0, NULL, NULL},
+  {"test_comp_level", test_comp_level, TEST_CONNECTION_NONE, 0, NULL, NULL},
   {"test_ext_field_attr", test_ext_field_attr, TEST_CONNECTION_DEFAULT, 0, NULL, NULL},
   {"test_conc533", test_conc533, TEST_CONNECTION_NEW, 0, NULL, NULL},
+  {"test_conc163", test_conc163, TEST_CONNECTION_DEFAULT, 0, NULL, NULL},
   {"test_conc458", test_conc458, TEST_CONNECTION_NONE, 0, NULL, NULL},
 #if !__has_feature(memory_sanitizer)
   {"test_conc457", test_conc457, TEST_CONNECTION_DEFAULT, 0, NULL, NULL},

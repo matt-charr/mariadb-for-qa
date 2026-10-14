@@ -45,7 +45,6 @@
 #include <windows.h>
 #include <wincrypt.h>
 #include <bcrypt.h>
-extern BCRYPT_ALG_HANDLE Sha512Prov;
 #elif defined(HAVE_OPENSSL)
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
@@ -70,7 +69,8 @@ static int auth_ed25519_init(char *unused1,
 #ifndef PLUGIN_DYNAMIC
 struct st_mysql_client_plugin_AUTHENTICATION client_ed25519_client_plugin=
 #else
-struct st_mysql_client_plugin_AUTHENTICATION _mysql_client_plugin_declaration_ =
+MARIADB_CLIENT_PLUGIN_EXPORT struct st_mysql_client_plugin_AUTHENTICATION
+    _mysql_client_plugin_declaration_=
 #endif
 {
   MYSQL_CLIENT_AUTHENTICATION_PLUGIN,
@@ -123,9 +123,6 @@ static int auth_ed25519_init(char *unused1 __attribute__((unused)),
     int unused3     __attribute__((unused)),
     va_list unused4 __attribute__((unused)))
 {
-#if defined(HAVE_WINCRYPT)
-  BCryptOpenAlgorithmProvider(&Sha512Prov, BCRYPT_SHA512_ALGORITHM, NULL, 0);
-#endif
   return 0;
 }
 /* }}} */
@@ -133,9 +130,6 @@ static int auth_ed25519_init(char *unused1 __attribute__((unused)),
 /* {{{ auth_ed25519_deinit */
 static int auth_ed25519_deinit(void)
 {
-#if defined(HAVE_WINCRYPT)
-  BCryptCloseAlgorithmProvider(Sha512Prov, 0);
-#endif
   return 0;
 }
 /* }}} */

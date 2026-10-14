@@ -512,7 +512,7 @@ typedef uint64 ULLong;
 
 typedef union { double d; ULong L[2]; } U;
 
-#if defined(HAVE_BIGENDIAN) || defined(WORDS_BIGENDIAN) || \
+#if defined(HAVE_BIGENDIAN) || \
    (defined(__FLOAT_WORD_ORDER) && (__FLOAT_WORD_ORDER == __BIG_ENDIAN))
 #define word0(x) ((x)->L[0])
 #define word1(x) ((x)->L[1])
@@ -597,7 +597,7 @@ typedef struct Bigint
 } Bigint;
 
 
-/* A simple stack-memory based allocator for Bigints */
+/* A simple stack-memory-based allocator for Bigints */
 
 typedef struct Stack_alloc
 {
@@ -643,11 +643,15 @@ static Bigint *Balloc(int k, Stack_alloc *alloc)
     else
       rv= (Bigint*) malloc(len);
 
-    rv->k= k;
-    rv->maxwds= x;
+    if (rv) {
+      rv->k= k;
+      rv->maxwds= x;
+    }
   }
-  rv->sign= rv->wds= 0;
-  rv->p.x= (ULong*) (rv + 1);
+  if (rv) {
+    rv->sign= rv->wds= 0;
+    rv->p.x= (ULong*) (rv + 1);
+  }
   return rv;
 }
 

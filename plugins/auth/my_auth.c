@@ -6,17 +6,17 @@
 #include <mysql/client_plugin.h>
 
 typedef struct st_mysql_client_plugin_AUTHENTICATION auth_plugin_t;
-static int client_mpvio_write_packet(struct st_plugin_vio*, const uchar*, size_t);
+static int client_mpvio_write_packet(struct st_plugin_vio*, const uchar*, int);
 static int native_password_auth_client(MYSQL_PLUGIN_VIO *vio, MYSQL *mysql);
 static int dummy_fallback_auth_client(MYSQL_PLUGIN_VIO *vio, MYSQL *mysql __attribute__((unused)));
 extern void read_user_name(char *name);
 extern char *ma_send_connect_attr(MYSQL *mysql, unsigned char *buffer);
 extern int ma_read_ok_packet(MYSQL *mysql, uchar *pos, ulong length);
-extern unsigned char *mysql_net_store_length(unsigned char *packet, size_t length);
+extern unsigned char *mysql_net_store_length(unsigned char *packet, ulonglong length);
 
 typedef struct {
   int (*read_packet)(struct st_plugin_vio *vio, uchar **buf);
-  int (*write_packet)(struct st_plugin_vio *vio, const uchar *pkt, size_t pkt_len);
+  int (*write_packet)(struct st_plugin_vio *vio, const uchar *pkt, int pkt_len);
   void (*info)(struct st_plugin_vio *vio, struct st_plugin_vio_info *info);
   /* -= end of MYSQL_PLUGIN_VIO =- */
   MYSQL *mysql;
@@ -66,7 +66,7 @@ static int native_password_auth_client(MYSQL_PLUGIN_VIO *vio, MYSQL *mysql)
       we use the old scramble.
     */
     pkt= (uchar*)mysql->scramble_buff;
-    pkt_len= SCRAMBLE_LENGTH + 1;
+    pkt_len= SCRAMBLE_LENGTH + 1; // @infer-ignore DEAD_STORE
   }
   else
   {
@@ -120,7 +120,7 @@ static int dummy_fallback_auth_client(MYSQL_PLUGIN_VIO *vio, MYSQL *mysql __attr
   unsigned int i, last_errno= ((MCPVIO_EXT *)vio)->mysql->net.last_errno;
   if (last_errno)
   {
-    strncpy(last_error, ((MCPVIO_EXT *)vio)->mysql->net.last_error,
+    memcpy(last_error, ((MCPVIO_EXT *)vio)->mysql->net.last_error,
             sizeof(last_error) - 1);
     last_error[sizeof(last_error) - 1]= 0;
   }
@@ -137,7 +137,7 @@ static int dummy_fallback_auth_client(MYSQL_PLUGIN_VIO *vio, MYSQL *mysql __attr
   if (last_errno)
   {
     MYSQL *mysql= ((MCPVIO_EXT *)vio)->mysql;
-    strncpy(mysql->net.last_error, last_error,
+    memcpy(mysql->net.last_error, last_error,
             sizeof(mysql->net.last_error) - 1);
     mysql->net.last_error[sizeof(mysql->net.last_error) - 1]= 0;
   }
@@ -163,13 +163,19 @@ static int send_change_user_packet(MCPVIO_EXT *mpvio,
   {
     if (mysql->client_flag & CLIENT_SECURE_CONNECTION)
     {
-      DBUG_ASSERT(data_len <= 255);
-      if (data_len > 255)
+      if (mysql->server_capabilities & CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA)
       {
-        my_set_error(mysql, CR_MALFORMED_PACKET, SQLSTATE_UNKNOWN, 0);
-        goto error;
+        end= (char *)mysql_net_store_length((uchar *)end, data_len);
       }
-      *end++= data_len;
+      else
+      {
+        if (data_len > 255)
+        {
+          my_set_error(mysql, CR_MALFORMED_PACKET, SQLSTATE_UNKNOWN, 0);
+          goto error;
+        }
+        *end++= data_len;
+      }
     }
     else
     {
@@ -208,10 +214,19 @@ static int send_client_reply_packet(MCPVIO_EXT *mpvio,
   char *buff, *end;
   size_t conn_attr_len= (mysql->options.extension) ? 
                          mysql->options.extension->connect_attrs_len : 0;
+  size_t proxy_header_len= 0;
+  char *proxy_header=
+      (mysql->options.extension) ? mysql->options.extension->proxy_header : NULL;
+  if (proxy_header)
+    proxy_header_len= mysql->options.extension->proxy_header_len;
 
   /* see end= buff+32 below, fixed size of the packet is 32 bytes */
-  buff= malloc(33 + USERNAME_LENGTH + data_len + NAME_LEN + NAME_LEN + conn_attr_len + 9);
-  end= buff;
+  if (!(buff= malloc(33 + USERNAME_LENGTH + data_len + NAME_LEN + NAME_LEN + conn_attr_len + 9)))
+  {
+    my_set_error(mysql, CR_OUT_OF_MEMORY, SQLSTATE_UNKNOWN, 0);
+    goto error;
+  }
+  end= buff; // @infer-ignore DEAD_STORE
 
   mysql->client_flag|= mysql->options.client_flag;
   mysql->client_flag|= CLIENT_CAPABILITIES;
@@ -340,6 +355,14 @@ static int send_client_reply_packet(MCPVIO_EXT *mpvio,
       Send mysql->client_flag, max_packet_size - unencrypted otherwise
       the server does not know we want to do SSL
     */
+    if (proxy_header_len)
+    {
+      ma_net_write_buff(net, proxy_header, proxy_header_len);
+      /* Reset proxy header */
+      proxy_header_len= 0;
+      proxy_header= NULL;
+    }
+
     if (ma_net_write(net, (unsigned char *)buff, (size_t) (end-buff)) || ma_net_flush(net))
     {
       my_set_error(mysql, CR_SERVER_LOST, SQLSTATE_UNKNOWN,
@@ -407,10 +430,18 @@ static int send_client_reply_packet(MCPVIO_EXT *mpvio,
   */
   if (mysql->client_flag & CLIENT_ZSTD_COMPRESSION)
   {
-    int4store(end, (unsigned int)3);
-    end+= 4;
+    uchar compression_level= 3;
+    if (mysql->options.extension &&
+        mysql->options.extension->zstd_compression_level >= 1 &&
+        mysql->options.extension->zstd_compression_level <= 20)
+    {
+        compression_level= mysql->options.extension->zstd_compression_level;
+    }
+    *end++= compression_level;
   }
 
+  if (proxy_header_len)
+    ma_net_write_buff(net, proxy_header, proxy_header_len);
   /* Write authentication package */
   if (ma_net_write(net, (unsigned char *)buff, (size_t) (end-buff)) || ma_net_flush(net))
   {
@@ -500,7 +531,7 @@ static int client_mpvio_read_packet(struct st_plugin_vio *mpv, uchar **buf)
 */
 
 static int client_mpvio_write_packet(struct st_plugin_vio *mpv,
-                                     const uchar *pkt, size_t pkt_len)
+                                     const uchar *pkt, int pkt_len)
 {
   int res;
   MCPVIO_EXT *mpvio= (MCPVIO_EXT*)mpv;
@@ -508,9 +539,9 @@ static int client_mpvio_write_packet(struct st_plugin_vio *mpv,
   if (mpvio->packets_written == 0)
   {
     if (mpvio->mysql_change_user)
-      res= send_change_user_packet(mpvio, pkt, (int)pkt_len);
+      res= send_change_user_packet(mpvio, pkt, pkt_len);
     else
-      res= send_client_reply_packet(mpvio, pkt, (int)pkt_len);
+      res= send_client_reply_packet(mpvio, pkt, pkt_len);
   }
   else
   {
@@ -612,9 +643,8 @@ int run_plugin_auth(MYSQL *mysql, char *data, uint data_len,
   const char    *auth_plugin_name= NULL;
   auth_plugin_t *auth_plugin;
   MCPVIO_EXT    mpvio;
-  ulong		pkt_length;
+  ulong		      pkt_length;
   int           res;
-
 
   /* determine the default/initial plugin to use */
   if (mysql->server_capabilities & CLIENT_PLUGIN_AUTH)
